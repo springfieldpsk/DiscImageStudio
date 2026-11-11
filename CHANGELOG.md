@@ -4,6 +4,7 @@
 
 ### 中文
 
+- CD 音轨图案盘新增「内圈可播放音轨」：设计页可加入 WAV/MP3/FLAC 音乐列表（MP3/FLAC 及非 44.1 kHz 输入经 Windows Media Foundation 解码并重采样为 CD-DA PCM，带磁盘缓存），刻录时作为多条可播放音轨写入光盘内圈、图案轨位于其外侧，仍由一次 DAO-96 写入完成；每轨补齐 4 秒最小轨长并追加 2 秒尾部静音，容量按音乐轨占用的扇区先行扣除，进度与确认文案计入全部轨道。导出为单个 WAV 与多轨 CUE；音轨列表随工程保存，与数据文件夹互斥。DVD／BD／CD 数据盘的设计页另显示数据文件夹内的音频文件摘要。
 - Windows 应用宿主设置 `CetCompat=false`，作为 #229 所报启动失败的兼容性处理；这会降低该应用进程的硬件影子栈保护，不修改系统级安全设置。受影响原机上的启动结果仍待验证。
 - 新增 Windows ARM64 自包含单文件 EXE；Windows x64 与 ARM64 分别在原生 runner 上构建并对最终发布文件执行自检、音轨生成和 GUI 截图检查，Release 复用这些已测试制品。ARM64 使用 Windows 11，CI 仅覆盖软件检查，尚未验证实盘刻录。
 - 设计页支持从资源管理器拖入单张或多张图片。
@@ -13,6 +14,7 @@
 
 ### English
 
+- CD audio-track projects gain playable lead-in tracks: the Design page accepts a WAV/MP3/FLAC list (MP3/FLAC and non-44.1 kHz input is decoded through Windows Media Foundation and resampled to CD-DA PCM, with a disk cache). Burning writes them as playable tracks on the inner ring ahead of the artwork track, still in a single DAO-96 pass; each track is padded to the four-second minimum and gains a two-second tail pause, capacity is reduced by the music sectors first, and progress and confirmation text cover all tracks. Export produces one WAV plus a multi-track CUE; the list is saved with the project and is exclusive with the data folder. DVD/BD/CD-data projects also show an audio-file summary for their data folder on the Design page.
 - Set `CetCompat=false` on the Windows application host as a compatibility workaround for the startup failure reported in #229. This reduces hardware shadow-stack protection for this application process without changing system-wide security settings. Startup on the affected original machine still needs verification.
 - Add a self-contained single-file Windows ARM64 EXE. Windows x64 and ARM64 builds run on native runners and check the final executables with self-tests, audio-track generation and GUI snapshots; releases reuse those tested artifacts. ARM64 uses Windows 11. CI covers software checks only; physical disc burning on ARM64 remains unverified.
 - Import one or multiple images by dragging files from Explorer onto the design page, using the same layer fitting and failure messages as the import button. Folders and unrelated files are ignored, and imports are disabled while a job is running.

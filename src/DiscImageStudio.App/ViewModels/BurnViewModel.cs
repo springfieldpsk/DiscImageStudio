@@ -19,6 +19,7 @@ public partial class BurnViewModel : ObservableObject
     private readonly DiscParametersState _state;
     private readonly DesignViewModel _design;
     private readonly IOpticalDiscBurner _opticalDiscBurner;
+    private readonly Func<DiscImageStudio.Cd.ICdAudioTranscoder> _audioTranscoderFactory;
     private CancellationTokenSource? _burnCancellation;
     private int _burnWriteSpeedRefreshRevision;
     private int _burnPreparationRevision;
@@ -81,12 +82,14 @@ public partial class BurnViewModel : ObservableObject
     }
 
     internal BurnViewModel(ShellViewModel shell, DiscParametersState state, DesignViewModel design,
-        IOpticalDiscBurner opticalDiscBurner, bool useCalibrationPattern = false)
+        IOpticalDiscBurner opticalDiscBurner, bool useCalibrationPattern = false,
+        Func<DiscImageStudio.Cd.ICdAudioTranscoder>? audioTranscoderFactory = null)
     {
         _shell = shell;
         _state = state;
         _design = design;
         _opticalDiscBurner = opticalDiscBurner;
+        _audioTranscoderFactory = audioTranscoderFactory ?? DiscImageStudio.Cd.CdAudioTranscoderFactory.Create;
         UseCalibrationPattern = useCalibrationPattern;
         RefreshDevicesCommand = new RelayCommand(() => _ = RefreshDevicesAsync(), () => !_shell.IsBusy);
         RefreshSpeedsCommand = new RelayCommand(() => _ = RefreshWriteSpeedsAsync(), () => !_shell.IsBusy);
@@ -119,7 +122,8 @@ public partial class BurnViewModel : ObservableObject
                 OnPropertyChanged(nameof(DvdReadCompatibility));
                 UpdateSourceSummary();
             }
-            if (args.PropertyName == nameof(DiscParametersState.CdDataDirectory)
+            if ((args.PropertyName == nameof(DiscParametersState.CdDataDirectory)
+                    || args.PropertyName == nameof(DiscParametersState.CdAudioTrackPaths))
                 && !UseCalibrationPattern
                 && _shell.CurrentProject?.Family == OpticalDiscFamily.CompactDisc)
             {
@@ -316,6 +320,11 @@ public partial class BurnViewModel : ObservableObject
             string encoding = string.IsNullOrWhiteSpace(_state.CdDataDirectory)
                 ? _state.CdInterleave ? L.T("CD 音轨 · 启用延迟交织") : L.T("CD 音轨 · 未交织")
                 : L.F($"CD 数据盘 · 文件位于{(_state.CdFilesAtOuterRing ? L.T("外圈") : L.T("内圈"))}");
+            if (!_state.HasCdFiles && _state.CdAudioTrackPaths is { Count: > 0 } tracks)
+            {
+                encoding += L.F($" · 内圈音轨 ×{tracks.Count}");
+            }
+
             SourceDetails = _design.HasLayers
                 ? L.F($"确保磁盘预留适量空间 · {encoding}")
                 : L.F($"合成图会自动生成本页输入。 · {encoding}");
@@ -323,6 +332,7 @@ public partial class BurnViewModel : ObservableObject
                 _state.CdInnerRadius, _state.CdOuterRadius, _state.CdInterleave,
                 _state.CdPitchLinear, _state.CdPitchQuadratic, _state.CdPitchCubic,
                 _state.CdDataDirectory, _state.CdVolumeLabel, _state.CdFilesAtOuterRing,
+                string.Join("\u001e", _state.CdAudioTrackPaths.Select(TrackIdentity)),
                 _state.ToneDitherStrength, _state.ToneLevels, _state.ToneBrightness,
                 _state.ToneSrgbLinearization);
         }
@@ -390,6 +400,21 @@ public partial class BurnViewModel : ObservableObject
     }
 
     private void UpdateActionState() => StartBurnCommand.NotifyCanExecuteChanged();
+
+    /// <summary>Identity of one audio source file: path plus size and timestamp, so an
+    /// edited or replaced file invalidates the burn confirmation again.</summary>
+    private static string TrackIdentity(string path)
+    {
+        try
+        {
+            FileInfo info = new(path);
+            return $"{path}|{info.Length}|{info.LastWriteTimeUtc.Ticks}";
+        }
+        catch (Exception)
+        {
+            return path;
+        }
+    }
 
     internal async Task RefreshDevicesAsync()
     {
@@ -661,10 +686,46 @@ public partial class BurnViewModel : ObservableObject
                 else
                 {
                     CdDiscParameters parameters = ReadCdGeneratedParameters();
+                    // Playable lead-in tracks occupy the inner ring first; the artwork track
+                    // follows them, so its usable sector budget shrinks by their total.
+                    IReadOnlyList<string>? audioPaths = !_state.HasCdFiles && _state.HasCdAudioTracks
+                        ? _state.CdAudioTrackPaths
+                        : null;
+                    List<OpticalBurnAudioTrack>? leadInTracks = null;
+                    CdAudioTrackPlan? audioPlan = null;
+                    long writableSectors = capacity.WritableSectors;
+                    if (audioPaths is { Count: > 0 })
+                    {
+                        DiscImageStudio.Cd.ICdAudioTranscoder transcoder = _audioTranscoderFactory();
+                        List<DiscImageStudio.Cd.CdAudioPcmFile> preparedFiles = [];
+                        foreach (string path in audioPaths)
+                        {
+                            preparedFiles.Add(await Task.Run(() => transcoder.Prepare(path)));
+                        }
+
+                        audioPlan = CdAudioTrackLayout.Plan(
+                            preparedFiles.Select(pcm => (pcm.SourcePath, pcm.PcmBytes)).ToArray());
+                        leadInTracks = [];
+                        for (int index = 0; index < audioPlan.Tracks.Count; index++)
+                        {
+                            DiscImageStudio.Cd.CdAudioPcmFile padded = await Task.Run(
+                                () => transcoder.MaterializePadded(
+                                    preparedFiles[index], audioPlan!.Tracks[index].PaddedPcmBytes));
+                            leadInTracks.Add(new OpticalBurnAudioTrack(padded.PcmFilePath, padded.PcmBytes));
+                        }
+
+                        writableSectors -= audioPlan.MusicSectorCount;
+                        if (writableSectors < CdAudioTrackLayout.MinimumTrackSectors)
+                        {
+                            throw new InvalidOperationException(
+                                L.F($"内圈音轨共 {audioPlan.MusicSectorCount} 扇区，图案可用空间不足。"));
+                        }
+                    }
+
                     parameters = parameters with
                     {
                         SourceImageOuterRadiusMm = parameters.SamplingImageOuterRadiusMm,
-                        UsableSectors = StreamBurnCapacity.Resolve(parameters.OutputSectors, capacity.WritableSectors, mediaKind),
+                        UsableSectors = StreamBurnCapacity.Resolve(parameters.OutputSectors, writableSectors, mediaKind),
                     };
                     request = CreateCdBurnRequest(
                         compositePath,
@@ -675,10 +736,23 @@ public partial class BurnViewModel : ObservableObject
                         _state.CdInterleave,
                         _state.Tone,
                         device.Id,
-                        selectedWriteSpeed.Speed);
-                    contentDescription = request.MediaKind == OpticalBurnMediaKind.CdData
-                        ? L.F($"CD 数据盘（DAO） · 文件位于{(_state.CdFilesAtOuterRing ? L.T("外圈") : L.T("内圈"))}")
-                        : L.T("CD 音轨");
+                        selectedWriteSpeed.Speed,
+                        leadInTracks);
+                    if (request.MediaKind == OpticalBurnMediaKind.CdData)
+                    {
+                        contentDescription = L.F($"CD 数据盘（DAO） · 文件位于{(_state.CdFilesAtOuterRing ? L.T("外圈") : L.T("内圈"))}");
+                    }
+                    else if (leadInTracks is { Count: > 0 })
+                    {
+                        double seconds = audioPlan!.MusicSectorCount / (double)CdAudioTrackLayout.SectorsPerSecond;
+                        contentDescription = L.F($"CD 混合音轨（{leadInTracks.Count} 首音乐 + 图案）")
+                            + L.F($" · 音乐 {seconds / 60:0}:{seconds % 60:00}");
+                    }
+                    else
+                    {
+                        contentDescription = L.T("CD 音轨");
+                    }
+
                     contentDescription += L.F($" · {parameters.OutputSectors} 扇区 · {request.ContentLength / (1024.0 * 1024.0):F1} MiB");
                 }
             }
@@ -706,7 +780,7 @@ public partial class BurnViewModel : ObservableObject
             IsBurnRunning = true;
             CancellationTokenSource burnCancellation = new();
             _burnCancellation = burnCancellation;
-            _shell.BeginBurnDockJob(request.MediaKind, request.ContentLength);
+            _shell.BeginBurnDockJob(request.MediaKind, request.EffectiveTotalBytes);
             _shell.AppendLog(
                 L.F($"\n[{DateTime.Now:HH:mm:ss}] 开始流式刻录：{contentDescription}；")
                 + L.F($"设备={device.DisplayName}；请求速度={selectedWriteSpeed.DisplayName}。\n"));
@@ -778,7 +852,8 @@ public partial class BurnViewModel : ObservableObject
         bool interleave,
         ToneProfile tone,
         string deviceId,
-        OpticalWriteSpeed? writeSpeed)
+        OpticalWriteSpeed? writeSpeed,
+        IReadOnlyList<OpticalBurnAudioTrack>? leadInAudioTracks = null)
     {
         parameters.Validate();
         ToneProfile capturedTone = tone.Normalized();
@@ -787,7 +862,15 @@ public partial class BurnViewModel : ObservableObject
             return new OpticalBurnRequest(deviceId, OpticalBurnMediaKind.CdAudio, parameters.TotalBytes,
                 (output, token) => CdTrackGenerator.GenerateToStream(imagePath, output, parameters,
                     interleave, cancellationToken: token, audioByteOrder: CdAudioByteOrder.LittleEndian,
-                    tone: capturedTone), writeSpeed);
+                    tone: capturedTone), writeSpeed,
+                LeadInAudioTracks: leadInAudioTracks is { Count: > 0 } ? leadInAudioTracks : null);
+        }
+
+        if (leadInAudioTracks is { Count: > 0 })
+        {
+            throw new ArgumentException(
+                "Lead-in audio tracks require CD audio mode without a data folder.",
+                nameof(leadInAudioTracks));
         }
 
         CdDataLayoutPlan plan = CdDataImageGenerator.PrepareLayout(dataDirectory.Trim(), parameters,

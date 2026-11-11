@@ -38,7 +38,10 @@ public sealed record ProjectOutputs(
     string VolumeLabel,
     bool Interleave,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool FilesAtOuterRing = false,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool DvdReadCompatibility = false);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool DvdReadCompatibility = false,
+    /// <summary>Playable CD-DA lead-in audio files of a CD audio-track project, inner-ring
+    /// order. Null for every project written before the feature or working in data mode.</summary>
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? AudioTracks = null);
 
 /// <summary>Generation settings that exist only for BD-R: the 3T/6T mapping polarity.
 /// This is deliberately separate from <see cref="ToneProfile"/>: polarity selects which
@@ -383,6 +386,28 @@ public static class ProjectJsonStore
         if (string.IsNullOrWhiteSpace(outputs.OutputPath))
         {
             throw DiagnosticMessage.InvalidData($"outputs.outputPath 不能为空。");
+        }
+
+        if (outputs.AudioTracks is { Count: > 0 } tracks)
+        {
+            if (!document.IsCd)
+            {
+                throw DiagnosticMessage.InvalidData($"outputs.audioTracks 只用于 CD 工程。");
+            }
+
+            if (!string.IsNullOrWhiteSpace(outputs.DataDirectory))
+            {
+                throw DiagnosticMessage.InvalidData(
+                    $"outputs.audioTracks 与 outputs.dataDirectory 互斥：音轨只在 CD 音轨模式有效。");
+            }
+
+            foreach (string track in tracks)
+            {
+                if (string.IsNullOrWhiteSpace(track))
+                {
+                    throw DiagnosticMessage.InvalidData($"outputs.audioTracks 不能包含空路径。");
+                }
+            }
         }
     }
 

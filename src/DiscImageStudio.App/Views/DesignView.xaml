@@ -255,6 +255,81 @@
                                                                                IsSecondSelected="{Binding State.CdFilesAtOuterRing}" />
                                                 </StackPanel>
                                             </controls:VisibilityGate>
+                                            <!-- Playable CD-DA lead-in tracks: burned to the
+                                                 inner ring ahead of the artwork track in one
+                                                 DAO pass, so a CD player plays real music
+                                                 while the outer ring still shows the picture. -->
+                                            <controls:VisibilityGate IsOpen="{Binding State.IsCdAudioMode}">
+                                                <StackPanel Margin="0,14,0,0">
+                                                    <TextBlock Style="{StaticResource FieldLabel}"
+                                                               Text="{loc:Text Xaml.CdLeadInTracks}" Margin="0,0,0,6" />
+                                                    <TextBlock Style="{StaticResource HintText}" Margin="0,0,0,8"
+                                                               Text="{loc:Text Xaml.CdLeadInTracksHint}"
+                                                               TextWrapping="Wrap" />
+                                                    <ItemsControl ItemsSource="{Binding CdAudioTracks}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Border BorderBrush="{DynamicResource DividerBrush}"
+                                                                        BorderThickness="0,0,0,1" Padding="0,4">
+                                                                    <Grid>
+                                                                        <Grid.ColumnDefinitions>
+                                                                            <ColumnDefinition Width="*" />
+                                                                            <ColumnDefinition Width="Auto" />
+                                                                            <ColumnDefinition Width="Auto" />
+                                                                        </Grid.ColumnDefinitions>
+                                                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                                            <TextBlock Text="{Binding FileName}"
+                                                                                       TextTrimming="CharacterEllipsis"
+                                                                                       ToolTip="{Binding Path}" />
+                                                                            <TextBlock Style="{StaticResource HintText}"
+                                                                                       Text="{Binding ErrorText}"
+                                                                                       Foreground="{DynamicResource DangerBrush}"
+                                                                                       TextWrapping="Wrap"
+                                                                                       Visibility="{Binding IsInvalid, Converter={StaticResource BoolToVisibility}}" />
+                                                                        </StackPanel>
+                                                                        <TextBlock Grid.Column="1" VerticalAlignment="Center"
+                                                                                   Margin="10,0,4,0"
+                                                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                                                   Text="{Binding DurationText}" />
+                                                                        <StackPanel Grid.Column="2" Orientation="Horizontal"
+                                                                                    VerticalAlignment="Center">
+                                                                            <Button Style="{StaticResource IconButton}"
+                                                                                    Command="{Binding DataContext.MoveCdAudioTrackUpCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                                    CommandParameter="{Binding}"
+                                                                                    ToolTip="{loc:Text Xaml.MoveUp}"
+                                                                                    Padding="4">
+                                                                                <iconPacks:PackIconLucide Kind="ChevronUp" Width="14" Height="14" />
+                                                                            </Button>
+                                                                            <Button Style="{StaticResource IconButton}"
+                                                                                    Command="{Binding DataContext.MoveCdAudioTrackDownCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                                    CommandParameter="{Binding}"
+                                                                                    ToolTip="{loc:Text Xaml.MoveDown}"
+                                                                                    Padding="4">
+                                                                                <iconPacks:PackIconLucide Kind="ChevronDown" Width="14" Height="14" />
+                                                                            </Button>
+                                                                            <Button Style="{StaticResource IconButton}"
+                                                                                    Command="{Binding DataContext.RemoveCdAudioTrackCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                                    CommandParameter="{Binding}"
+                                                                                    ToolTip="{loc:Text Xaml.RemoveTrack}"
+                                                                                    Padding="4">
+                                                                                <iconPacks:PackIconLucide Kind="X" Width="14" Height="14" />
+                                                                            </Button>
+                                                                        </StackPanel>
+                                                                    </Grid>
+                                                                </Border>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Margin="0,8,0,0"
+                                                               Text="{Binding CdAudioTrackSummary}"
+                                                               Visibility="{Binding HasCdAudioTracks, Converter={StaticResource BoolToVisibility}}" />
+                                                    <Button Style="{StaticResource SecondaryButton}"
+                                                            Height="{StaticResource ControlHeight}" Margin="0,10,0,0"
+                                                            Content="{loc:Text Xaml.AddAudioTracks}"
+                                                            Command="{Binding AddCdAudioTrackCommand}"
+                                                            HorizontalAlignment="Stretch" />
+                                                </StackPanel>
+                                            </controls:VisibilityGate>
                                             <TextBlock Style="{StaticResource HintText}" Margin="0,12,0,0"
                                                        Text="{loc:Text Xaml.UsesAnAudioTrackWithoutFilesSwitchesToA}" />
                                         </StackPanel>
@@ -291,6 +366,22 @@
                                                                                IsSecondSelected="{Binding State.BdFilesAtOuterRing}" />
                                                 </StackPanel>
                                             </controls:VisibilityGate>
+                                        </StackPanel>
+                                    </controls:VisibilityGate>
+                                    <!-- One informational row under whichever family block is
+                                         visible: music carried as plain files (DVD/BD and
+                                         CD data mode). CD audio-mode playable tracks are the
+                                         dedicated list above; there the folder is empty and
+                                         this row collapses on its own. -->
+                                    <controls:VisibilityGate IsOpen="{Binding HasFolderAudioSummary}">
+                                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                            <iconPacks:PackIconLucide Kind="Music" Width="14" Height="14"
+                                                                      Foreground="{DynamicResource TextMutedBrush}"
+                                                                      VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding FolderAudioSummary}"
+                                                       Style="{StaticResource HintText}"
+                                                       Margin="6,0,0,0" VerticalAlignment="Center"
+                                                       TextWrapping="Wrap" />
                                         </StackPanel>
                                     </controls:VisibilityGate>
                                 </StackPanel>

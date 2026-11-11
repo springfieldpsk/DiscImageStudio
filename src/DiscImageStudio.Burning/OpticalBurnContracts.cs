@@ -10,13 +10,15 @@ public enum OpticalBurnMediaKind
 
 internal static class OpticalBurnMedia
 {
+    internal const int CdAudioSectorBytes = 2352;
+
     internal static bool UsesCdDao(OpticalBurnMediaKind mediaKind)
         => mediaKind is OpticalBurnMediaKind.CdAudio or OpticalBurnMediaKind.CdData;
 
     internal static int GetSectorBytes(OpticalBurnMediaKind mediaKind)
         => mediaKind switch
         {
-            OpticalBurnMediaKind.CdAudio => 2352,
+            OpticalBurnMediaKind.CdAudio => CdAudioSectorBytes,
             OpticalBurnMediaKind.CdData or OpticalBurnMediaKind.DvdData or OpticalBurnMediaKind.BluRayData => 2048,
             _ => throw new ArgumentOutOfRangeException(nameof(mediaKind), mediaKind, "Unknown optical media kind."),
         };
@@ -78,6 +80,13 @@ public sealed record OpticalBurnProgress(
 }
 
 /// <summary>
+/// One playable CD-DA lead-in track. PcmFilePath must contain headerless
+/// 44.1 kHz, 16-bit stereo little-endian PCM, and PcmBytes must be its exact
+/// sector-aligned length, so the file can back an IMAPI audio track directly.
+/// </summary>
+public sealed record OpticalBurnAudioTrack(string PcmFilePath, long PcmBytes);
+
+/// <summary>
 /// CD audio producers supply headerless 44.1 kHz, 16-bit stereo little-endian PCM,
 /// as required by IMAPI_CD_SECTOR_AUDIO. ContentLength excludes any WAV header.
 /// CD data, DVD and Blu-ray producers supply complete 2048-byte logical data sectors.
@@ -89,11 +98,16 @@ public sealed record OpticalBurnRequest(
     long ContentLength,
     Action<Stream, CancellationToken> ProduceContent,
     OpticalWriteSpeed? WriteSpeed = null,
-    OpticalBurnBufferOptions? BufferOptions = null)
+    OpticalBurnBufferOptions? BufferOptions = null,
+    IReadOnlyList<OpticalBurnAudioTrack>? LeadInAudioTracks = null)
 {
     public OpticalBurnBufferOptions EffectiveBufferOptions => BufferOptions
         ?? (MediaKind == OpticalBurnMediaKind.BluRayData
             ? OpticalBurnBufferOptions.BluRayDefault : OpticalBurnBufferOptions.Default);
+
+    /// <summary>Everything the recorder writes for this request: the lead-in audio
+    /// tracks plus the produced content. Progress totals use this value.</summary>
+    public long EffectiveTotalBytes => ContentLength + (LeadInAudioTracks?.Sum(track => track.PcmBytes) ?? 0);
 
     public void Validate()
     {
@@ -105,6 +119,34 @@ public sealed record OpticalBurnRequest(
             throw new ArgumentOutOfRangeException(
                 nameof(ContentLength),
                 $"Stream length must be a positive multiple of {sectorBytes} bytes.");
+        }
+
+        if (LeadInAudioTracks is { Count: > 0 } tracks)
+        {
+            if (MediaKind != OpticalBurnMediaKind.CdAudio)
+            {
+                throw new ArgumentException(
+                    "Lead-in audio tracks are only supported by CD audio burns.",
+                    nameof(LeadInAudioTracks));
+            }
+
+            foreach (OpticalBurnAudioTrack track in tracks)
+            {
+                if (string.IsNullOrWhiteSpace(track.PcmFilePath))
+                {
+                    throw new ArgumentException(
+                        "A lead-in audio track is missing its PCM file path.",
+                        nameof(LeadInAudioTracks));
+                }
+
+                if (track.PcmBytes <= 0 || track.PcmBytes % OpticalBurnMedia.CdAudioSectorBytes != 0)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(LeadInAudioTracks),
+                        "Lead-in audio track length must be a positive multiple of "
+                            + $"{OpticalBurnMedia.CdAudioSectorBytes} bytes.");
+                }
+            }
         }
 
         WriteSpeed?.Validate();

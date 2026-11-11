@@ -99,6 +99,8 @@ BD-R 复用同一刻录契约：`BluRayIsoGenerator` 在一个前向流里写入
 
 CD、DVD 和 BD 共用 `BurnDeviceDiagnostics` 的写前环境、固件及物理盘片类型／空白状态日志。物理类型按 IMAPI 返回值记录（如 DVD-R、DVD+R DL、BD-R、BD-RE），不由工程预设或光驱名称推断；识别类型不代表新增对该类型的写入支持。可选字段读取失败只记 `unavailable`，不阻止刻录。
 
+CD 音轨图案盘支持**内圈可播放音轨**：`OpticalBurnRequest.LeadInAudioTracks` 携带按轨排好的无头 CD-DA PCM 文件，`MsftRawCDImageCreator.AddTrack` 逐轨构建 DAO-96 镜像后仍由一次 `MsftDiscFormat2RawCD.WriteMedia` 写入，音乐轨位于内圈、图案轨居末。实测 IMAPI 将各轨背靠背排布、轨间不插入 pregap 且 lead-out 恰为各轨扇区之和（`CdMultiTrackImageTests` 锁定该行为），因此 `CdAudioTrackLayout` 自行补足轨距：每轨音频补齐到整扇区并强制 4 秒（300 扇区）最小轨长，再追加 2 秒（150 扇区）尾部静音。`OpticalBurnRequest.EffectiveTotalBytes` 是进度与容量检查使用的总字节数（音乐轨 + 图案）；写前 DAO lead-out 检查天然覆盖多轨总量。音频来源为 WAV/MP3/FLAC：合规 PCM WAV 走直接拷贝，其余经 Windows Media Foundation source reader 解码并重采样为 44.1 kHz/16 位/立体声（`CdAudioTranscoder`，含磁盘缓存）；`CdAudioFileTrackStream` 以前向只读 COM 流喂给 IMAPI。导出侧同一布局生成单个 WAV 与多轨 CUE（`CdWaveFile.WriteCue` 重载）。图案几何模型自洽于音轨字节流，图案整体位于音乐轨外侧、并随内圈音频产生一个固定旋转角；标定流程不使用音轨，不受影响。
+
 DVD 的 `IDvdDataSession` 隔离现有 COM 调用，保留介质检查、缓冲保护、封盘设置、关闭校验、速度、事件订阅和写入顺序。诊断缓存 `MediaState`、`FreeSectors`、`RequiredSectors`、容量余量、请求／实际速度、设置及阶段耗时。BD 使用原有写前 `ReadMedia` 结果记录 profile、空白／格式化状态、轨道起点与容量、下一可写地址及有效性；另记录写入、刷新、关闭轨道、封盘和释放耗时。
 
 失败时在源流销毁与设备清理前保存 `Burn.DeviceContext`、对应介质的 `Burn.CdDaoContext`／`Burn.DvdContext`／`Burn.BluRayContext` 及 `Burn.ContentAtFailure`。上下文只使用已缓存的设备信息、现有事件和主机流计数，不再查询故障设备。生成量、源流读取量及主机队列量不等于实际落盘量；IMAPI 系统缓冲也不等于光驱物理缓存。CD／DVD 高层接口不暴露失败命令的 SCSI sense，日志明确标记不可用；BD MMC 异常已有的真实 sense 保持原样。CD 导入区事件节流与字段说明见 [CD 失败日志](CD_AUDIO_COMPATIBILITY.md#cd-dao-失败日志)。

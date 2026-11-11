@@ -86,6 +86,9 @@ internal static class ProjectSession
                 state.CdPitchCubic = state.CdActualPitchCubic = Format(geometry.PitchCubic);
                 state.CdDataDirectory = outputs.DataDirectory;
                 state.CdFilesAtOuterRing = outputs.FilesAtOuterRing;
+                state.CdAudioTrackPaths = outputs.AudioTracks is { Count: > 0 } && state.IsCdAudioMode
+                    ? outputs.AudioTracks
+                    : [];
                 state.CdVolumeLabel = string.IsNullOrWhiteSpace(outputs.VolumeLabel) ? "CD_IMAGE" : outputs.VolumeLabel;
                 state.CdOutputPath = outputs.OutputPath;
                 state.NormalizeCdOutputFormat();
@@ -158,7 +161,8 @@ internal static class ProjectSession
                     state.CdDataDirectory,
                     state.CdVolumeLabel,
                     state.CdInterleave,
-                    FilesAtOuterRing: state.CdFilesAtOuterRing);
+                    FilesAtOuterRing: state.CdFilesAtOuterRing,
+                    AudioTracks: state.HasCdAudioTracks ? state.CdAudioTrackPaths.ToList() : null);
         }
     }
 

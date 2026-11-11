@@ -2149,5 +2149,70 @@
     "tr": "; dosyalar dış halkada, desen iç tarafta",
     "es": "; archivos en la zona exterior, dibujo por dentro",
     "cs": "; soubory na vnějším prstenci, kresba blíž ke středu"
+  },
+  "校验中…": {
+    "zh-CN": "校验中…",
+    "en": "Validating…",
+    "zh-TW": "校驗中…"
+  },
+  "不可用": {
+    "zh-CN": "不可用",
+    "en": "Unavailable",
+    "zh-TW": "不可用"
+  },
+  "部分音频未加入": {
+    "zh-CN": "部分音频未加入",
+    "en": "Some audio files were not added",
+    "zh-TW": "部分音訊未加入"
+  },
+  "（仅支持 WAV/MP3/FLAC）": {
+    "zh-CN": "（仅支持 WAV/MP3/FLAC）",
+    "en": " (WAV/MP3/FLAC only)",
+    "zh-TW": "（僅支援 WAV/MP3/FLAC）"
+  },
+  "内圈音轨 {0} 首 · {1} · {2:F1} MiB": {
+    "zh-CN": "内圈音轨 {0} 首 · {1} · {2:F1} MiB",
+    "en": "{0} lead-in tracks · {1} · {2:F1} MiB",
+    "zh-TW": "內圈音軌 {0} 首 · {1} · {2:F1} MiB"
+  },
+  "正在准备内圈音轨…": {
+    "zh-CN": "正在准备内圈音轨…",
+    "en": "Preparing lead-in audio tracks…",
+    "zh-TW": "正在準備內圈音軌…"
+  },
+  "CD 混合音轨（{0} 首音乐 + 图案）": {
+    "zh-CN": "CD 混合音轨（{0} 首音乐 + 图案）",
+    "en": "CD mixed tracks ({0} music + artwork)",
+    "zh-TW": "CD 混合音軌（{0} 首音樂 + 圖案）"
+  },
+  "内圈音轨共 {0} 扇区，图案可用空间不足。": {
+    "zh-CN": "内圈音轨共 {0} 扇区，图案可用空间不足。",
+    "en": "Lead-in tracks use {0} sectors; not enough room remains for the artwork.",
+    "zh-TW": "內圈音軌共 {0} 扇區，圖案可用空間不足。"
+  },
+  "多音轨导出仅支持 WAV（含 CUE）。": {
+    "zh-CN": "多音轨导出仅支持 WAV（含 CUE）。",
+    "en": "Multi-track export requires WAV with CUE.",
+    "zh-TW": "多音軌匯出僅支援 WAV（含 CUE）。"
+  },
+  "正在解码内圈音轨 {0}/{1}…": {
+    "zh-CN": "正在解码内圈音轨 {0}/{1}…",
+    "en": "Decoding lead-in track {0}/{1}…",
+    "zh-TW": "正在解碼內圈音軌 {0}/{1}…"
+  },
+  "音频文件 {0} 个 · {1:F1} MiB · 位于{2}": {
+    "zh-CN": "音频文件 {0} 个 · {1:F1} MiB · 位于{2}",
+    "en": "{0} audio files · {1:F1} MiB · at the {2}",
+    "zh-TW": "音訊檔案 {0} 個 · {1:F1} MiB · 位於{2}"
+  },
+  "正在生成 CD 混合音轨…": {
+    "zh-CN": "正在生成 CD 混合音轨…",
+    "en": "Generating mixed CD tracks…",
+    "zh-TW": "正在生成 CD 混合音軌…"
+  },
+  "内圈音轨 ×{0}": {
+    "zh-CN": "内圈音轨 ×{0}",
+    "en": "lead-in tracks ×{0}",
+    "zh-TW": "內圈音軌 ×{0}"
   }
 }

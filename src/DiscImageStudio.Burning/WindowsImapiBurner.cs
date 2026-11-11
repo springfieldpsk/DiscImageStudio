@@ -303,7 +303,8 @@ public sealed class WindowsImapiBurner : IOpticalDiscBurner
         CancellationToken cancellationToken)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
-        ImapiWriteProgressReporter writeProgress = new(request.MediaKind, request.ContentLength,
+        long totalBytes = request.EffectiveTotalBytes;
+        ImapiWriteProgressReporter writeProgress = new(request.MediaKind, totalBytes,
             value => progress?.Report(value));
         string currentOperation = "初始化 Windows 刻录接口";
         List<string> cleanupWarnings = [];
@@ -312,7 +313,7 @@ public sealed class WindowsImapiBurner : IOpticalDiscBurner
             "device",
             "正在检查刻录机和空白介质…",
             0,
-            request.ContentLength));
+            totalBytes));
         dynamic recorder = ImapiCom.CreateRecorder(request.DeviceId);
         dynamic? format = null;
         OpticalBurnResult? result = null;
@@ -365,24 +366,25 @@ public sealed class WindowsImapiBurner : IOpticalDiscBurner
                             + $"{request.WriteSpeed.GetMultiplier(request.MediaKind):0.#}×"
                             + $"（{request.WriteSpeed.GetMegabytesPerSecond(request.MediaKind):0.0} MB/s）…",
                     0,
-                    request.ContentLength));
+                    totalBytes));
             }
 
+            long leadInBytes = totalBytes - request.ContentLength;
             using GeneratedContentComStream content = new(
                 request.ContentLength,
                 request.ProduceContent,
                 (completed, total) => progress?.Report(new OpticalBurnProgress(
                     "transfer",
-                    $"正在向刻录接口传输 {completed / (1024.0 * 1024.0):F1} / {total / (1024.0 * 1024.0):F1} MiB…",
-                    completed,
-                    total)),
+                    $"正在向刻录接口传输 {(leadInBytes + completed) / (1024.0 * 1024.0):F1} / {totalBytes / (1024.0 * 1024.0):F1} MiB…",
+                    leadInBytes + completed,
+                    totalBytes)),
                 cancellationToken,
                 request.EffectiveBufferOptions);
             progress?.Report(new OpticalBurnProgress(
                 "buffer",
                 "正在准备防断流缓冲区…",
-                0,
-                request.ContentLength));
+                leadInBytes,
+                totalBytes));
             currentOperation = "预填充生成缓冲区";
             try { content.WaitUntilPrebuffered(cancellationToken); }
             catch (Exception exception)
@@ -427,7 +429,7 @@ public sealed class WindowsImapiBurner : IOpticalDiscBurner
                     writeProgress.ReportAcceptedBytes,
                     reportCleanupWarning: message => cleanupWarnings.Add(message),
                     reportDiagnostics: message => progress?.Report(new OpticalBurnProgress(
-                        "diagnostic", message, 0, request.ContentLength)),
+                        "diagnostic", message, 0, totalBytes)),
                     reportRecordedLba: writeProgress.ReportRecordedSectors);
                 actualWriteSpeed = BurnBluRay(session, content, request,
                     cancellationToken, ReportOperation,
@@ -491,12 +493,12 @@ public sealed class WindowsImapiBurner : IOpticalDiscBurner
         progress?.Report(new OpticalBurnProgress(
             "complete",
             "刻录完成，盘片会话已关闭。",
-            request.ContentLength,
-            request.ContentLength));
+            totalBytes,
+            totalBytes));
         return result!;
 
         void ReportDiagnostic(string message)
-            => progress?.Report(new OpticalBurnProgress("diagnostic", message, 0, request.ContentLength));
+            => progress?.Report(new OpticalBurnProgress("diagnostic", message, 0, totalBytes));
 
         void ReportOperation(string operation)
         {
@@ -859,7 +861,13 @@ public sealed class WindowsImapiBurner : IOpticalDiscBurner
     {
         if (!OpticalBurnMedia.UsesCdDao(request.MediaKind))
             throw new ArgumentException("CD DAO requires an audio or CD data request.", nameof(request));
-        string trackDescription = request.MediaKind == OpticalBurnMediaKind.CdData ? "数据轨" : "音轨";
+        bool mixedTracks = request.LeadInAudioTracks is { Count: > 0 };
+        if (mixedTracks && request.MediaKind != OpticalBurnMediaKind.CdAudio)
+            throw new ArgumentException("Lead-in audio tracks require a CD audio request.", nameof(request));
+        string trackDescription = mixedTracks
+            ? $"音轨（{request.LeadInAudioTracks!.Count} 音乐 + 1 图案）"
+            : request.MediaKind == OpticalBurnMediaKind.CdData ? "数据轨" : "音轨";
+        List<CdAudioFileTrackStream> leadInStreams = [];
         bool prepared = false;
         Exception? operationException = null;
         string operation = "准备 CD 刻录";
@@ -921,12 +929,41 @@ public sealed class WindowsImapiBurner : IOpticalDiscBurner
             catch (Exception exception) { mediaDiagnostic = $"CD DAO 介质设置：unavailable (0x{exception.HResult:X8})。"; }
             Diagnose(() => mediaDiagnostic);
 
+            SetOperation(mixedTracks ? $"打开 {request.LeadInAudioTracks!.Count} 条内圈音轨" : $"构造 CD DAO {trackDescription}");
+            foreach (OpticalBurnAudioTrack track in request.LeadInAudioTracks ?? [])
+            {
+                try
+                {
+                    leadInStreams.Add(new CdAudioFileTrackStream(track.PcmFilePath, track.PcmBytes));
+                }
+                catch (Exception exception)
+                {
+                    throw new IOException(
+                        $"无法读取内圈音轨 {Path.GetFileName(track.PcmFilePath)}：{exception.Message}", exception);
+                }
+            }
+
             SetOperation($"构造 CD DAO {trackDescription}");
-            IStream rawImage = imageSession.CreateImage(content, sectorType);
+            IStream rawImage;
+            try
+            {
+                IStream[] programTracks = [.. leadInStreams.Cast<IStream>(), content];
+                rawImage = imageSession.CreateImage(programTracks, sectorType);
+            }
+            catch (Exception)
+            {
+                DisposeLeadInStreams();
+                throw;
+            }
+
             long startOfLeadout = imageSession.StartOfLeadout;
             long lastPossibleStartOfLeadout = format.LastPossibleStartOfLeadout;
             long excessSectors = startOfLeadout - lastPossibleStartOfLeadout;
-            layoutDiagnostic = $"CD DAO 容量：TrackSectors={request.ContentLength / OpticalBurnMedia.GetSectorBytes(request.MediaKind)}；"
+            long programSectors = request.EffectiveTotalBytes / OpticalBurnMedia.GetSectorBytes(request.MediaKind);
+            layoutDiagnostic = (mixedTracks
+                    ? $"CD DAO 容量：MusicTracks={leadInStreams.Count}；"
+                    : $"CD DAO 容量：TrackSectors={request.ContentLength / OpticalBurnMedia.GetSectorBytes(request.MediaKind)}；")
+                + $"ProgramSectors={programSectors}；"
                 + $"StartOfLeadout={startOfLeadout}；LastPossibleStartOfLeadout={lastPossibleStartOfLeadout}；"
                 + $"LeadoutMarginSectors={-excessSectors}。";
             Diagnose(() => layoutDiagnostic);
@@ -960,6 +997,9 @@ public sealed class WindowsImapiBurner : IOpticalDiscBurner
         }
         finally
         {
+            // The DAO result image reads the track streams lazily while WriteMedia
+            // pulls, so they must outlive the write; nothing reads them afterwards.
+            DisposeLeadInStreams();
             if (prepared)
             {
                 if (operationException is null)
@@ -995,6 +1035,20 @@ public sealed class WindowsImapiBurner : IOpticalDiscBurner
             operation = value;
             operationStarted = daoTimer.Elapsed;
             try { reportOperation?.Invoke(value); } catch { }
+        }
+
+        void DisposeLeadInStreams()
+        {
+            foreach (CdAudioFileTrackStream stream in leadInStreams)
+            {
+                try { stream.Dispose(); }
+                catch (Exception exception)
+                {
+                    reportCleanupWarning?.Invoke($"关闭内圈音轨流失败：{exception.Message}");
+                }
+            }
+
+            leadInStreams.Clear();
         }
 
         void RecordFailure(Exception exception)

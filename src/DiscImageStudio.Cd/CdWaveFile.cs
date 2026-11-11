@@ -36,14 +36,41 @@ internal static class CdWaveFile
     }
 
     internal static string WriteCue(string wavePath)
+        => WriteCue(wavePath, [(0, 0)]);
+
+    /// <summary>Multi-track CUE: one AUDIO track per entry, INDEX 01 at each start sector
+    /// expressed in MSF frames at 75 per second. The single-track form above keeps its
+    /// historical one-track output.</summary>
+    internal static string WriteCue(string wavePath, IReadOnlyList<(long StartSector, long Sectors)> tracks)
     {
+        ArgumentException.ThrowIfNullOrEmpty(wavePath);
+        ArgumentNullException.ThrowIfNull(tracks);
+        if (tracks.Count == 0)
+        {
+            throw new ArgumentException("At least one track is required.", nameof(tracks));
+        }
+
+        StringBuilder cue = new();
+        cue.Append($"FILE \"{Path.GetFileName(wavePath)}\" WAVE\r\n");
+        for (int index = 0; index < tracks.Count; index++)
+        {
+            long start = Math.Max(0, tracks[index].StartSector);
+            cue.Append($"  TRACK {index + 1:00} AUDIO\r\n");
+            cue.Append($"    INDEX 01 {Msf(start)}\r\n");
+        }
+
         string cuePath = Path.ChangeExtension(wavePath, ".cue");
-        File.WriteAllText(cuePath,
-            $"FILE \"{Path.GetFileName(wavePath)}\" WAVE\r\n"
-            + "  TRACK 01 AUDIO\r\n"
-            + "    INDEX 01 00:00:00\r\n",
+        File.WriteAllText(cuePath, cue.ToString(),
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         return cuePath;
+    }
+
+    private static string Msf(long sectors)
+    {
+        long frames = sectors % 75;
+        long seconds = sectors / 75 % 60;
+        long minutes = sectors / (75 * 60);
+        return $"{minutes:00}:{seconds:00}:{frames:00}";
     }
 
     internal static (long Offset, long Length) ReadAudioRange(Stream input)

@@ -81,8 +81,11 @@ public partial class DiscParametersState : ObservableObject
     [ObservableProperty] private bool _cdInterleave = true;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasCdFiles), nameof(IsCdAudioMode), nameof(IsCdWaveOutput),
-        nameof(CdOutputLabel), nameof(CdOutputHint))]
+        nameof(CdOutputLabel), nameof(CdOutputHint), nameof(HasCdAudioTracks))]
     private string _cdDataDirectory = string.Empty;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCdAudioTracks))]
+    private IReadOnlyList<string> _cdAudioTrackPaths = [];
     [ObservableProperty] private bool _cdFilesAtOuterRing;
     [ObservableProperty] private string _cdVolumeLabel = DefaultCdVolumeLabel;
 
@@ -217,6 +220,10 @@ public partial class DiscParametersState : ObservableObject
 
     public bool IsCdAudioMode => !HasCdFiles;
 
+    /// <summary>Playable CD-DA lead-in tracks exist only in audio mode; choosing a data
+    /// folder is the explicit switch away from them.</summary>
+    public bool HasCdAudioTracks => IsCdAudioMode && CdAudioTrackPaths.Count > 0;
+
     /// <summary>Label of the CD output the design page's pipeline card offers; the artifact
     /// switches between a data ISO and an audio track as the on-disc folder appears.</summary>
     public string CdOutputLabel => HasCdFiles ? L.T("输出数据盘 (.iso)") : L.T("输出音轨 (.wav / .raw)");
@@ -225,7 +232,17 @@ public partial class DiscParametersState : ObservableObject
         ? L.T("包含随盘文件，导出为 CD 数据盘 ISO。")
         : L.T("无随盘文件时生成音轨，推荐 WAV 格式。");
 
-    partial void OnCdDataDirectoryChanged(string value) => NormalizeCdOutputFormat();
+    partial void OnCdDataDirectoryChanged(string value)
+    {
+        // The data folder is the explicit switch to CD data mode; playable tracks
+        // only exist in audio mode, so they cannot survive it.
+        if (HasCdFiles && CdAudioTrackPaths.Count > 0)
+        {
+            CdAudioTrackPaths = [];
+        }
+
+        NormalizeCdOutputFormat();
+    }
 
     internal void NormalizeCdOutputFormat()
     {

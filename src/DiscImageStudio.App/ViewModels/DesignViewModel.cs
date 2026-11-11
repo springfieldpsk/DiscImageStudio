@@ -42,9 +42,16 @@ public partial class DesignViewModel : ObservableObject
     private bool _dataRegionPending;
 
     public DesignViewModel(ShellViewModel shell, DiscParametersState state, Dispatcher dispatcher)
+        : this(shell, state, dispatcher, null)
+    {
+    }
+
+    internal DesignViewModel(ShellViewModel shell, DiscParametersState state, Dispatcher dispatcher,
+        DiscImageStudio.Cd.ICdAudioTranscoder? audioTranscoder)
     {
         _shell = shell;
         _state = state;
+        _cdAudioTranscoder = audioTranscoder ?? DiscImageStudio.Cd.CdAudioTranscoderFactory.Create();
         _compositeTimer = new DispatcherTimer { Interval = CompositeDebounce };
         _dataRegionTimer = new DispatcherTimer { Interval = DataRegionDebounce };
         _shell.PropertyChanged += Shell_PropertyChanged;
@@ -61,6 +68,13 @@ public partial class DesignViewModel : ObservableObject
         };
         ImportImagesCommand = new RelayCommand(ImportImages, () => !_shell.IsBusy);
         RemoveSelectedCommand = new RelayCommand(RemoveSelected, () => SelectedLayer is not null && !_shell.IsBusy);
+        AddCdAudioTrackCommand = new AsyncRelayCommand(AddCdAudioTracksAsync, () => !_shell.IsBusy);
+        RemoveCdAudioTrackCommand = new RelayCommand<CdAudioTrackItemViewModel>(
+            RemoveCdAudioTrack, item => item is not null && !_shell.IsBusy);
+        MoveCdAudioTrackUpCommand = new RelayCommand<CdAudioTrackItemViewModel>(
+            item => MoveCdAudioTrack(item, -1), item => item is not null && !_shell.IsBusy);
+        MoveCdAudioTrackDownCommand = new RelayCommand<CdAudioTrackItemViewModel>(
+            item => MoveCdAudioTrack(item, +1), item => item is not null && !_shell.IsBusy);
         ToggleVisibilityCommand = new RelayCommand<DesignLayerViewModel>(layer =>
         {
             if (layer is not null)
@@ -69,8 +83,10 @@ public partial class DesignViewModel : ObservableObject
             }
         });
         Layers.CollectionChanged += Layers_CollectionChanged;
+        CdAudioTracks.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasCdAudioTracks));
         Tone = new ToneViewModel(shell, state, this);
         RefreshDataRegionText();
+        SyncCdAudioTracksFromState();
     }
 
     /// <summary>The right rail's tone module: its preview projects the same composite this
@@ -111,6 +127,14 @@ public partial class DesignViewModel : ObservableObject
     [ObservableProperty]
     private string _dataRegionOverflowText = string.Empty;
 
+    /// <summary>Audio files found in the active data folder: "count · MiB · ring". Purely
+    /// informational for DVD/BD/CD-data projects; CD audio-mode lead-in tracks live in
+    /// <see cref="CdAudioTracks"/> instead. Empty hides the row.</summary>
+    [ObservableProperty]
+    private string _folderAudioSummary = string.Empty;
+
+    public bool HasFolderAudioSummary => FolderAudioSummary.Length > 0;
+
     public RelayCommand BrowseDataCommand => _shell.Export.BrowseDataCommand;
 
     public ObservableCollection<DesignLayerViewModel> Layers { get; } = [];
@@ -135,6 +159,14 @@ public partial class DesignViewModel : ObservableObject
     public RelayCommand RemoveSelectedCommand { get; }
 
     public RelayCommand<DesignLayerViewModel> ToggleVisibilityCommand { get; }
+
+    public IAsyncRelayCommand AddCdAudioTrackCommand { get; }
+
+    public RelayCommand<CdAudioTrackItemViewModel> RemoveCdAudioTrackCommand { get; }
+
+    public RelayCommand<CdAudioTrackItemViewModel> MoveCdAudioTrackUpCommand { get; }
+
+    public RelayCommand<CdAudioTrackItemViewModel> MoveCdAudioTrackDownCommand { get; }
 
     /// <summary>Set by the shell when a project opens; the composite's target State path and
     /// the canvas mapping depend on the family.</summary>
@@ -430,8 +462,190 @@ public partial class DesignViewModel : ObservableObject
         }
     }
 
+    // ---- Playable CD lead-in audio tracks ----
+
+    private readonly DiscImageStudio.Cd.ICdAudioTranscoder _cdAudioTranscoder;
+    private readonly Dictionary<string, DiscImageStudio.Cd.CdAudioPcmFile> _cdAudioPrepared =
+        new(StringComparer.OrdinalIgnoreCase);
+    private int _cdAudioValidationRevision;
+
+    /// <summary>One row per playable track, in inner-ring order. Rebuilt from the shared
+    /// state list so project opens and the data-mode switch flow through one path.</summary>
+    public ObservableCollection<CdAudioTrackItemViewModel> CdAudioTracks { get; } = [];
+
+    public bool HasCdAudioTracks => CdAudioTracks.Count > 0;
+
+    /// <summary>Text under the track list: count, total playing time and decoded size.</summary>
+    public string CdAudioTrackSummary
+    {
+        get
+        {
+            if (CdAudioTracks.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            long pcmBytes = _cdAudioPrepared.Values.Select(pcm => pcm.PcmBytes)
+                .DefaultIfEmpty(0)
+                .Sum();
+            double seconds = CdAudioTracks.Sum(track => track.DecodedSeconds);
+            return L.F($"内圈音轨 {CdAudioTracks.Count} 首 · {FormatTrackTime(seconds)} · {pcmBytes / (1024.0 * 1024.0):F1} MiB");
+        }
+    }
+
+    internal IReadOnlyDictionary<string, DiscImageStudio.Cd.CdAudioPcmFile> PreparedCdAudioTracks => _cdAudioPrepared;
+
+    private async Task AddCdAudioTracksAsync()
+    {
+        string[]? picked = _shell.Dialogs?.PickAudioTracks();
+        if (picked is null || picked.Length == 0)
+        {
+            return;
+        }
+
+        List<string> added = [];
+        List<string> failed = [];
+        foreach (string path in picked)
+        {
+            if (_state.CdAudioTrackPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
+            {
+                continue; // already listed; the picker cannot hide it
+            }
+
+            try
+            {
+                if (!DiscImageStudio.Cd.CdAudioTranscoderFactory.IsSupportedSource(path))
+                {
+                    failed.Add(Path.GetFileName(path) + L.T("（仅支持 WAV/MP3/FLAC）"));
+                    continue;
+                }
+
+                DiscImageStudio.Cd.CdAudioPcmFile prepared = await Task.Run(
+                    () => _cdAudioTranscoder.Prepare(path));
+                _cdAudioPrepared[path] = prepared;
+                added.Add(path);
+            }
+            catch (Exception exception)
+            {
+                failed.Add($"{Path.GetFileName(path)}：{exception.Message}");
+            }
+        }
+
+        if (added.Count > 0)
+        {
+            // The state list is the single source of truth; the collection rebuilds from it.
+            _state.CdAudioTrackPaths = [.. _state.CdAudioTrackPaths, .. added];
+        }
+
+        if (failed.Count > 0)
+        {
+            _shell.ShowToast(L.T("部分音频未加入"), string.Join("\n", failed), ToastKind.Warning);
+        }
+    }
+
+    private void RemoveCdAudioTrack(CdAudioTrackItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        _state.CdAudioTrackPaths = _state.CdAudioTrackPaths
+            .Where(path => !string.Equals(path, item.Path, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+    }
+
+    private void MoveCdAudioTrack(CdAudioTrackItemViewModel? item, int delta)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        List<string> paths = _state.CdAudioTrackPaths.ToList();
+        int index = paths.FindIndex(
+            path => string.Equals(path, item.Path, StringComparison.OrdinalIgnoreCase));
+        int target = index + delta;
+        if (index < 0 || target < 0 || target >= paths.Count)
+        {
+            return;
+        }
+
+        (paths[index], paths[target]) = (paths[target], paths[index]);
+        _state.CdAudioTrackPaths = paths;
+    }
+
+    /// <summary>Rebuilds the track rows from the state list, then validates unknown files in
+    /// the background so an opened project shows durations without blocking the UI.</summary>
+    private void SyncCdAudioTracksFromState()
+    {
+        int revision = ++_cdAudioValidationRevision;
+        CdAudioTracks.Clear();
+        foreach (string path in _state.CdAudioTrackPaths)
+        {
+            CdAudioTracks.Add(new CdAudioTrackItemViewModel(path));
+        }
+
+        OnPropertyChanged(nameof(CdAudioTrackSummary));
+        _ = ValidateCdAudioTracksAsync(revision);
+    }
+
+    private async Task ValidateCdAudioTracksAsync(int revision)
+    {
+        foreach (CdAudioTrackItemViewModel item in CdAudioTracks.ToList())
+        {
+            if (revision != _cdAudioValidationRevision)
+            {
+                return;
+            }
+
+            if (_cdAudioPrepared.TryGetValue(item.Path, out DiscImageStudio.Cd.CdAudioPcmFile? known))
+            {
+                item.FillFromPrepared(known);
+            }
+            else
+            {
+                try
+                {
+                    DiscImageStudio.Cd.CdAudioPcmFile prepared = await Task.Run(
+                        () => _cdAudioTranscoder.Prepare(item.Path));
+                    if (revision != _cdAudioValidationRevision)
+                    {
+                        return;
+                    }
+
+                    _cdAudioPrepared[item.Path] = prepared;
+                    item.FillFromPrepared(prepared);
+                }
+                catch (Exception exception)
+                {
+                    item.MarkInvalid(exception.Message);
+                }
+            }
+
+            OnPropertyChanged(nameof(CdAudioTrackSummary));
+        }
+    }
+
+    internal static string FormatTrackTime(double seconds)
+    {
+        if (double.IsNaN(seconds) || seconds < 0)
+        {
+            seconds = 0;
+        }
+
+        int total = (int)Math.Round(seconds);
+        return $"{total / 60:0}:{total % 60:00}";
+    }
+
     private void State_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(DiscParametersState.CdAudioTrackPaths))
+        {
+            SyncCdAudioTracksFromState();
+            return;
+        }
+
         if (e.PropertyName is
             nameof(DiscParametersState.CdDataDirectory) or nameof(DiscParametersState.CdVolumeLabel)
             or nameof(DiscParametersState.CdFilesAtOuterRing)
@@ -503,6 +717,8 @@ public partial class DesignViewModel : ObservableObject
 
                 IReadOnlyList<DataRegionMm>? regions = null;
                 bool overflow = false;
+                string? audioDirectory = null;
+                bool audioAtOuterRing = false;
                 if (inputs is not null)
                 {
                     try
@@ -517,6 +733,32 @@ public partial class DesignViewModel : ObservableObject
                     {
                         // A missing folder or invalid geometry hides the guide silently.
                     }
+
+                    // The summary rides the same debounced pass: one folder scan, UI thread idle.
+                    audioDirectory = Family switch
+                    {
+                        OpticalDiscFamily.Dvd => _state.DvdDataDirectory,
+                        OpticalDiscFamily.BluRay => _state.BdDataDirectory,
+                        _ => _state.CdDataDirectory,
+                    };
+                    audioAtOuterRing = Family switch
+                    {
+                        OpticalDiscFamily.Dvd => _state.DvdFilesAtOuterRing,
+                        OpticalDiscFamily.BluRay => _state.BdFilesAtOuterRing,
+                        _ => _state.CdFilesAtOuterRing,
+                    };
+                }
+
+                string audioSummary = string.Empty;
+                if (!string.IsNullOrWhiteSpace(audioDirectory))
+                {
+                    string captured = audioDirectory;
+                    (int count, long bytes) = await Task.Run(() => Services.AudioFileSummary.Scan(captured));
+                    if (count > 0)
+                    {
+                        audioSummary = L.F($"音频文件 {count} 个 · {bytes / (1024.0 * 1024.0):F1} MiB · 位于")
+                            + (audioAtOuterRing ? L.T("外圈") : L.T("内圈"));
+                    }
                 }
 
                 if (revision != _dataRegionRevision)
@@ -528,6 +770,7 @@ public partial class DesignViewModel : ObservableObject
                 DataRegions = regions;
                 DataRegionOverflow = overflow;
                 DataRegionOverflowText = overflow ? L.T("Xaml.DataRegionOverflow") : string.Empty;
+                FolderAudioSummary = audioSummary;
                 CanvasChanged?.Invoke();
             }
             while (_dataRegionPending);

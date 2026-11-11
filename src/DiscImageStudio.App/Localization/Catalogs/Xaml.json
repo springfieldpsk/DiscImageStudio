@@ -2014,5 +2014,40 @@
     "tr": "Kalibrasyon",
     "es": "Calibración",
     "cs": "Kalibrace"
+  },
+  "Xaml.CdLeadInTracks": {
+    "zh-CN": "内圈音轨（可播放）",
+    "en": "Playable lead-in tracks",
+    "zh-TW": "內圈音軌（可播放）"
+  },
+  "Xaml.CdLeadInTracksHint": {
+    "zh-CN": "添加 WAV/MP3/FLAC：刻录时作为可播放的 CD 音轨写入内圈，图案位于其外侧，一次 DAO 写入完成。",
+    "en": "Add WAV/MP3/FLAC: burned as playable CD-DA tracks on the inner ring ahead of the artwork, in one DAO pass.",
+    "zh-TW": "加入 WAV/MP3/FLAC：燒錄時作為可播放的 CD 音軌寫入內圈，圖案位於其外側，一次 DAO 寫入完成。"
+  },
+  "Xaml.AddAudioTracks": {
+    "zh-CN": "添加音轨",
+    "en": "Add audio tracks",
+    "zh-TW": "加入音軌"
+  },
+  "Xaml.MoveUp": {
+    "zh-CN": "上移",
+    "en": "Move up",
+    "zh-TW": "上移"
+  },
+  "Xaml.MoveDown": {
+    "zh-CN": "下移",
+    "en": "Move down",
+    "zh-TW": "下移"
+  },
+  "Xaml.RemoveTrack": {
+    "zh-CN": "移除音轨",
+    "en": "Remove track",
+    "zh-TW": "移除音軌"
+  },
+  "Xaml.FolderAudioFiles": {
+    "zh-CN": "文件夹内音频",
+    "en": "Audio files in folder",
+    "zh-TW": "資料夾內音訊"
   }
 }

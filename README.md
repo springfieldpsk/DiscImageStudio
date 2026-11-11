@@ -68,6 +68,7 @@ Windows x64 下载以 `win-x64.exe` 结尾的文件；Windows 11 ARM64 下载以
 ### 光盘数据生成
 
 - **CD 支持**：支持任何 CD 。您可导出带格式头的 WAV 音轨及配套 CUE，兼容 cdrecord, ImgBurn等刻录软件；也允许导出 RAW 音轨。详见 [CD 刻录兼容说明](docs/CD_AUDIO_COMPATIBILITY.md)。
+- **内圈可播放音轨**：CD 音轨图案盘可在设计页加入 WAV/MP3/FLAC 音乐列表（自动转码为 CD-DA），刻录时作为可播放音轨写入光盘内圈，图案位于其外侧，一次 DAO 写入完成；普通 CD 机即可选曲播放。导出为单个 WAV 与多轨 CUE。随工程保存。
 - **DVD 支持**：支持任何 DVD。您可导出 ISO 镜像。
 - **蓝光支持**：支持任何单层 BD-R 25 GB，支持纯绘图与 UDF 2.01 文件。详见 [ADDING_BLURAY.md](docs/ADDING_BLURAY.md)。
 - **随盘文件**：CD／DVD／蓝光可在设计页直接选择要保存的文件夹及内圈／外圈位置，也可在导出页调整；设置随工程保存。

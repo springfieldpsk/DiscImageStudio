@@ -50,6 +50,19 @@ internal sealed class FileDialogService
         return dialog.ShowDialog(_ownerProvider()) == true ? dialog.FileName : null;
     }
 
+    /// <summary>Multi-select audio picker for the design page's playable CD lead-in tracks.</summary>
+    internal string[]? PickAudioTracks()
+    {
+        OpenFileDialog dialog = new()
+        {
+            Title = L.T("选择内圈音轨音频"),
+            Filter = L.T("音频文件|*.wav;*.mp3;*.flac|所有文件|*.*"),
+            CheckFileExists = true,
+            Multiselect = true,
+        };
+        return dialog.ShowDialog(_ownerProvider()) == true ? dialog.FileNames : null;
+    }
+
     internal string? PickSave(string filter, string extension, string fileName)
     {
         SaveFileDialog dialog = new()

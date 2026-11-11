@@ -51,6 +51,13 @@ internal interface ICdRawImageSession : IDisposable
     // sectorType must equal the type requested from the RawCD format. IMAPI cannot
     // detect a mismatch because both supported layouts use 2448-byte sectors.
     IStream CreateImage(IStream content, int sectorType);
+
+    // Multi-track DAO images: every stream becomes one track, in list order. The
+    // default keeps single-track implementations valid by rejecting longer lists.
+    IStream CreateImage(IReadOnlyList<IStream> tracks, int sectorType)
+        => tracks.Count == 1
+            ? CreateImage(tracks[0], sectorType)
+            : throw new NotSupportedException("This CD DAO image session supports exactly one track.");
 }
 
 internal sealed class DynamicCdRawSession(object format, Action<object>? reportWriteProgress = null) : ICdRawSession
@@ -144,9 +151,17 @@ internal sealed class DynamicCdRawImageSession : ICdRawImageSession
     internal int ResultingImageType => Convert.ToInt32(_creator.ResultingImageType);
 
     public IStream CreateImage(IStream audioContent, int sectorType)
+        => CreateImage([audioContent], sectorType);
+
+    public IStream CreateImage(IReadOnlyList<IStream> tracks, int sectorType)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(audioContent);
+        ArgumentNullException.ThrowIfNull(tracks);
+        if (tracks.Count == 0)
+        {
+            throw new ArgumentException("At least one track is required.", nameof(tracks));
+        }
+
         if (!CdRawSectorType.IsSupported(sectorType))
         {
             throw new ArgumentOutOfRangeException(nameof(sectorType), sectorType,
@@ -160,7 +175,13 @@ internal sealed class DynamicCdRawImageSession : ICdRawImageSession
         _creator.ResultingImageType = sectorType;
         // AddTrack expects WAV-order PCM without a header. The RAW image creator
         // preserves the supplied sample bytes; it does not correct big-endian input.
-        _creator.AddTrack(AudioSectorType, audioContent);
+        // IMA2 places tracks back to back with no inserted pregap: the program
+        // sector count is exactly the sum of the track lengths.
+        foreach (IStream track in tracks)
+        {
+            _creator.AddTrack(AudioSectorType, track);
+        }
+
         _resultImage = _creator.CreateResultImage();
         return (IStream)_resultImage;
     }

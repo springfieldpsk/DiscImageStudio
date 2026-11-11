@@ -232,10 +232,13 @@ public partial class ExportViewModel : ObservableObject
         CdImageRequest request = new(compositePath, output, parameters, _state.Tone,
             _state.CdInterleave, _state.CdWriteCue, _state.CdDataDirectory.Trim(),
             _state.ResolveVolumeLabel(OpticalDiscFamily.CompactDisc),
-            _state.CdFilesAtOuterRing);
+            _state.CdFilesAtOuterRing,
+            AudioTracks: _state.HasCdAudioTracks ? _state.CdAudioTrackPaths.ToList() : null);
+        string description = _state.HasCdFiles ? L.T("正在生成 CD 数据盘 ISO…")
+            : _state.HasCdAudioTracks ? L.T("正在生成 CD 混合音轨…")
+            : L.T("正在生成 CD 音轨…");
         if (await _shell.RunImageJobAsync(
-                _state.HasCdFiles ? L.T("正在生成 CD 数据盘 ISO…") : L.T("正在生成 CD 音轨…"),
-                output, (progress, token) => CdImageGenerator.Generate(request, progress, token), request.ToString()))
+                description, output, (progress, token) => CdImageGenerator.Generate(request, progress, token), request.ToString()))
             _state.CdTrackPath = output;
     }
 

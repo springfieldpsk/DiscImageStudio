@@ -68,6 +68,7 @@ Live burning is experimental. Use only expendable test media.
 ### Disc Data Generation
 
 - **CD support**: Supports any CD. Export WAV audio tracks with format headers and accompanying CUE files, compatible with burning software such as cdrecord and ImgBurn; RAW audio track export is also available. See [CD burning compatibility](docs/CD_AUDIO_COMPATIBILITY.md).
+- **Playable lead-in tracks**: CD audio-track projects can add WAV/MP3/FLAC music on the Design page (transcoded to CD-DA automatically). Burned as playable tracks on the inner ring ahead of the artwork in a single DAO pass — a regular CD player can pick and play them. Exports as one WAV plus a multi-track CUE. Saved with the project.
 - **DVD support**: Supports any DVD. Export ISO images.
 - **Blu-ray support**: Supports any single-layer 25 GB BD-R, with drawing-only mode and UDF 2.01 files. See [ADDING_BLURAY.md](docs/ADDING_BLURAY.md).
 - **Files on disc**: For CD, DVD, and Blu-ray, select a folder and place its files on the inner or outer ring directly from the Design page, or adjust these options on the Export page. The settings are saved with the project.
